@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockAnalytics - Dashboard de Gestão de Estoque</title>
+
+    <!-- SheetJS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- jsPDF & AutoTable CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- Estilo Principal -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        
+        <!-- HEADER COMPACTO 3D -->
+        <header class="app-header">
+            <div class="brand">
+                <span class="brand-icon">📦</span>
+                <div>
+                    <h1>StockAnalytics</h1>
+                    <span class="subtitle">Gestão de Estoque & Indicadores de Risco</span>
+                </div>
+            </div>
+
+            <!-- NAVEGAÇÃO POR ABAS -->
+            <nav class="tab-navigation">
+                <button class="tab-btn active" data-tab="tab-dashboard">📊 Dashboard</button>
+                <button class="tab-btn" data-tab="tab-sales">📈 Análise de Vendas</button>
+                <button class="tab-btn" data-tab="tab-charts">📉 Gráfico de Vendas</button>
+            </nav>
+
+            <div class="data-sync-widget">
+                <label for="folderInput" class="btn-sync">
+                    📁 Selecionar Pasta
+                </label>
+                <input type="file" id="folderInput" webkitdirectory directory style="display: none;">
+                
+                <button id="btnOpenSettings" class="btn-icon-setting" title="Configurações e Personalização">
+                    ⚙️
+                </button>
+
+                <div id="syncStatus" class="sync-status status-pending">
+                    <span class="status-dot"></span>
+                    <span id="syncText">Aguardando seleção...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- CONTROLES E FILTROS COMPACTOS -->
+        <section class="controls-section" id="globalControlsSection">
+            <div class="search-column">
+                <input type="text" id="globalSearch" placeholder="Buscar palavras (ex: arroz)..." disabled>
+                <input type="text" id="searchEmbalagem" placeholder="Filtrar embalagem (ex: 2kg, cx)..." disabled>
+            </div>
+            
+            <div class="filter-group">
+                <!-- COMPRADOR (DASHBOARD - PADRÃO) -->
+                <select id="filterComprador" disabled>
+                    <option value="">Comprador (Todos)</option>
+                </select>
+
+                <!-- COMPRADOR (VENDAS - COM CORES E MÉTRICAS) -->
+                <select id="filterCompradorSales" class="sales-select hidden" disabled>
+                    <option value="">Comprador (Todos)</option>
+                </select>
+
+                <select id="filterFornecedor" disabled>
+                    <option value="">Fornecedor (Todos)</option>
+                </select>
+
+                <select id="filterSta" disabled>
+                    <option value="">Status STA (Todos)</option>
+                </select>
+
+                <select id="filterDiversificado" disabled>
+                    <option value="">Filtro Diversificado (Nenhum)</option>
+                    <option value="valor_idade">Valor por Idade</option>
+                    <option value="isv">ISV (Idade x Sem Vendas)</option>
+                    <option value="baixa_autonomia">Baixa Autonomia sem Pedido</option>
+                </select>
+
+                <!-- FILTRO DE DASHBOARD: GRUPO/SUBGRUPO COMBINADO -->
+                <select id="filterGrupo" disabled>
+                    <option value="">Grupo / Subgrupo (Todos)</option>
+                </select>
+
+                <!-- FILTRO DE DASHBOARD: CLASSE -->
+                <select id="filterClasse" disabled>
+                    <option value="">Classe (Todas)</option>
+                </select>
+
+                <!-- FILTROS EXCLUSIVOS DA ABA DE VENDAS -->
+                <select id="filterGrupoSales" class="sales-select hidden" disabled>
+                    <option value="">Grupo (Todos)</option>
+                </select>
+
+                <select id="filterSubgrupoSales" class="sales-select hidden" disabled>
+                    <option value="">Subgrupo (Todos)</option>
+                </select>
+
+                <select id="filterClasseSales" class="sales-select hidden" disabled>
+                    <option value="">Classe (Todas)</option>
+                </select>
+            </div>
+
+            <div class="toggle-group" id="toggleGroupWrapper">
+                <label class="toggle-item disabled" id="lblToggleStock">
+                    <span class="switch">
+                        <input type="checkbox" id="toggleOnlyInStock" disabled>
+                        <span class="slider"></span>
+                    </span>
+                    C/ Estoque
+                </label>
+
+                <label class="toggle-item disabled" id="lblTogglePending">
+                    <span class="switch">
+                        <input type="checkbox" id="toggleOnlyPendingOrders" disabled>
+                        <span class="slider"></span>
+                    </span>
+                    C/ Ped. Pendentes
+                </label>
+            </div>
+
+            <button id="btnClearFilters" class="btn-clear" disabled title="Resetar todos os filtros">
+                🧹 Limpar
+            </button>
+
+            <!-- DROPDOWN DE PDF EXCLUSIVO DA DASHBOARD -->
+            <div class="dropdown-wrapper" id="pdfDropdownWrapper">
+                <button id="btnPdfMenu" class="btn-pdf" disabled>📄 PDF ▾</button>
+                <div id="dropdownPdf" class="dropdown-menu hidden">
+                    <button id="btnExportSimplePdf">📄 Relatório Simples</button>
+                    <button id="btnExportDetailedPdf">📋 Relatório Detalhado</button>
+                </div>
+            </div>
+
+            <div class="column-toggle-wrapper dropdown-wrapper" id="columnToggleWrapper">
+                <button id="btnToggleCols" class="btn-secondary" disabled>⚙️ Colunas ▾</button>
+                <div id="dropdownCols" class="dropdown-menu hidden">
+                    <label><input type="checkbox" data-target-col="embalagem" checked> Embalagem</label>
+                    <label><input type="checkbox" data-target-col="estoque" checked> Estoque (CX | UN)</label>
+                    <label><input type="checkbox" data-target-col="valorEstoque" checked> Val. Total Estoque</label>
+                    <label><input type="checkbox" data-target-col="precoCx" checked> Preço Cx.</label>
+                    <label><input type="checkbox" data-target-col="precoUnd" checked> Preço Und.</label>
+                    <label><input type="checkbox" data-target-col="idade" checked> Idade</label>
+                    <label><input type="checkbox" data-target-col="dias" checked> Dias s/ Venda</label>
+                    <label><input type="checkbox" data-target-col="autonomia" checked> Autonomia (Dias)</label>
+                    <label><input type="checkbox" data-target-col="rentabilidade" checked> Rentabilidade</label>
+                    <label><input type="checkbox" data-target-col="fornecedor" checked> Fornecedor</label>
+                    <label><input type="checkbox" data-target-col="pedidos" checked> Ped. Pendentes</label>
+                    <label><input type="checkbox" data-target-col="sta" checked> Status (STA)</label>
+                    <hr style="border-color: var(--border-color); margin: 0.2rem 0;">
+                    <label><input type="checkbox" data-target-col="comprador" checked> Comprador</label>
+                    <label><input type="checkbox" data-target-col="venda30Dias" checked> Venda 30 Dias</label>
+                    <label><input type="checkbox" data-target-col="grupo" checked> Grupo / Subgrupo</label>
+                    <label><input type="checkbox" data-target-col="classe" checked> Classe</label>
+                    <label><input type="checkbox" data-target-col="digito"> Dígito</label>
+                    <label><input type="checkbox" data-target-col="qtdIdeal"> Qtd Ideal</label>
+                    <label><input type="checkbox" data-target-col="dtUltEnt"> Dt. Últ. Entrada</label>
+                    <label><input type="checkbox" data-target-col="qtdUltEnt"> Qtd. Últ. Entrada</label>
+                    <label><input type="checkbox" data-target-col="bloq1"> Bloq 1</label>
+                    <label><input type="checkbox" data-target-col="bloq9"> Bloq 9</label>
+                    <label><input type="checkbox" data-target-col="prFixo"> Preço Fixo</label>
+                    <label><input type="checkbox" data-target-col="pedFornec"> Ped. Pend. Fornec.</label>
+                    <label><input type="checkbox" data-target-col="pedFilial"> Ped. Pend. Filial</label>
+                    <label><input type="checkbox" data-target-col="pedFat"> Ped. Pend. N. Fat</label>
+                </div>
+            </div>
+        </section>
+
+        <!-- CONTEÚDO DAS ABAS -->
+        <main class="main-content">
+            
+            <!-- ABA 1: DASHBOARD -->
+            <div id="tab-dashboard" class="tab-content active">
+                <section class="bento-grid">
+                    <div class="bento-card">
+                        <span class="card-label">Total de SKUs</span>
+                        <strong class="card-value" id="kpiTotalSkus">0</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Valor Total do Estoque</span>
+                        <strong class="card-value" id="kpiValorEstoqueTotal" style="color: var(--accent-blue);">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card warning">
+                        <span class="card-label">Em Alerta (> 2 dias)</span>
+                        <strong class="card-value" id="kpiWarning">0</strong>
+                    </div>
+                    <div class="bento-card critical">
+                        <span class="card-label">Risco Crítico (> 6 dias)</span>
+                        <strong class="card-value" id="kpiCritical">0</strong>
+                    </div>
+                </section>
+
+                <section class="table-container">
+                    <table class="data-table" id="inventoryTable">
+                        <thead>
+                            <tr>
+                                <th data-sort-key="descricao">Produto (MERC)</th>
+                                <th data-sort-key="embalagem" class="col-embalagem">Emb.</th>
+                                <th data-sort-key="estoqEmb1" class="col-estoque">Estoque (CX | UN)</th>
+                                <th data-sort-key="valorEstoqueTotal" class="col-valorEstoque">Val. Total Estoque</th>
+                                <th data-sort-key="precoVenda" class="col-precoCx">Preço Cx.</th>
+                                <th data-sort-key="precoUnidade" class="col-precoUnd">Preço Und.</th>
+                                <th data-sort-key="idade" class="col-idade">Idade</th>
+                                <th data-sort-key="diasSemVenda" class="col-dias">Dias s/ Venda</th>
+                                <th data-sort-key="autonomiaDias" class="col-autonomia">Autonomia (Dias)</th>
+                                <th data-sort-key="rentabilidade" class="col-rentabilidade">Rentabilidade</th>
+                                <th data-sort-key="fornecedorFormatted" class="col-fornecedor">Fornecedor</th>
+                                <th data-sort-key="pedidosPendentes" class="col-pedidos">Ped. Pendentes</th>
+                                <th data-sort-key="sta" class="col-sta">Status (STA)</th>
+
+                                <th data-sort-key="comprador" class="col-comprador">Comprador</th>
+                                <th data-sort-key="venda30Dias" class="col-venda30Dias">Venda 30 Dias</th>
+                                <th data-sort-key="grupoSubgrupo" class="col-grupo">Grupo / Subgrupo</th>
+                                <th data-sort-key="classe" class="col-classe">Classe</th>
+                                <th data-sort-key="digito" class="col-digito">Dígito</th>
+                                <th data-sort-key="qtdIdeal" class="col-qtdIdeal">Qtd Ideal</th>
+                                <th data-sort-key="dtUltEnt" class="col-dtUltEnt">Dt. Últ. Ent.</th>
+                                <th data-sort-key="qtdUltEnt" class="col-qtdUltEnt">Qtd. Últ. Ent.</th>
+                                <th data-sort-key="bloq1" class="col-bloq1">Bloq 1</th>
+                                <th data-sort-key="bloq9" class="col-bloq9">Bloq 9</th>
+                                <th data-sort-key="prFixo" class="col-prFixo">Pr. Fixo</th>
+                                <th data-sort-key="pedFornec" class="col-pedFornec">Ped. Fornec.</th>
+                                <th data-sort-key="pedFilial" class="col-pedFilial">Ped. Filial</th>
+                                <th data-sort-key="pedFat" class="col-pedFat">Ped. N. Fat</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr>
+                                <td colspan="27" class="empty-state">
+                                    Selecione a pasta contendo os arquivos para carregar os dados.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+            </div>
+
+            <!-- ABA 2: ANÁLISE DE VENDAS -->
+            <div id="tab-sales" class="tab-content hidden">
+                <section class="bento-grid">
+                    <div class="bento-card">
+                        <span class="card-label">Total Venda Anterior</span>
+                        <strong class="card-value" id="kpiVendaAnteriorTotal">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Total Venda Atual</span>
+                        <strong class="card-value" id="kpiVendaAtualTotal" style="color: var(--accent-blue);">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Diferença Vendas</span>
+                        <strong class="card-value" id="kpiDiferencaVendasTotal">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Evolução Geral (%)</span>
+                        <strong class="card-value" id="kpiPctEvolucaoTotal">0,00%</strong>
+                    </div>
+                </section>
+
+                <section class="table-container">
+                    <table class="data-table" id="salesTable">
+                        <thead>
+                            <tr>
+                                <th data-sort-key="descricao">Produto (MERC)</th>
+                                <th data-sort-key="embalagem">Embalagem</th>
+                                <th data-sort-key="estoqEmb1">Estoque (CX | UN)</th>
+                                <th data-sort-key="valorEstoqueTotal">Valor de Estoque</th>
+                                <th data-sort-key="fornecedorFormatted">Fornecedor</th>
+                                <th data-sort-key="rentabilidade">Rentabilidade</th>
+                                <th data-sort-key="vendaAnterior">Venda Anterior</th>
+                                <th data-sort-key="vendaAtual">Venda Atual</th>
+                                <th data-sort-key="diferencaVendas">Diferença (R$)</th>
+                                <th data-sort-key="pctEvolucao">Evolução (%)</th>
+                                <th data-sort-key="comprador">Comprador</th>
+                                <th data-sort-key="sta">Status (STA)</th>
+                                <th data-sort-key="grupoSubgrupo">Grupo / Subgrupo</th>
+                                <th data-sort-key="classe">Classe</th>
+                                <th data-sort-key="diasSemVenda">Dias s/ Venda</th>
+                                <th data-sort-key="autonomiaDias">Autonomia (Dias)</th>
+                                <th data-sort-key="idade">Idade</th>
+                                <th data-sort-key="pedidosPendentes">Ped. Pendentes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="salesTableBody">
+                            <tr>
+                                <td colspan="18" class="empty-state">
+                                    Selecione a pasta contendo os arquivos para carregar os dados.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+            </div>
+
+            <!-- ABA 3: GRÁFICO DE VENDAS -->
+            <div id="tab-charts" class="tab-content hidden">
+                <section class="bento-grid">
+                    <div class="bento-card">
+                        <span class="card-label">Total Venda Anterior</span>
+                        <strong class="card-value" id="kpiChartsVendaAnterior">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Total Venda Atual</span>
+                        <strong class="card-value" id="kpiChartsVendaAtual" style="color: var(--accent-blue);">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Diferença Vendas</span>
+                        <strong class="card-value" id="kpiChartsDiferencaVendas">R$ 0,00</strong>
+                    </div>
+                    <div class="bento-card">
+                        <span class="card-label">Evolução Geral (%)</span>
+                        <strong class="card-value" id="kpiChartsPctEvolucao">0,00%</strong>
+                    </div>
+                </section>
+
+                <div class="charts-control-bar">
+                    <div class="chart-control-item">
+                        <label for="chartUnitType">🔀 Visualizar em:</label>
+                        <select id="chartUnitType">
+                            <option value="currency" selected>Faturamento (R$)</option>
+                            <option value="quantity">Volume (Caixas / Qtd)</option>
+                        </select>
+                    </div>
+
+                    <div class="chart-control-item">
+                        <label for="chartSortMetric">Métrica do Ranking:</label>
+                        <select id="chartSortMetric">
+                            <option value="vendaAtual">Venda Atual</option>
+                            <option value="diferencaVendas" selected>Diferença / Evolução</option>
+                            <option value="pctEvolucao">Evolução Percentual (%)</option>
+                            <option value="vendaAnterior">Venda Anterior</option>
+                        </select>
+                    </div>
+
+                    <div class="chart-control-item">
+                        <label for="chartSortOrder">Ordenação:</label>
+                        <select id="chartSortOrder">
+                            <option value="desc" selected>⬆ Maior para Menor (Top Performers)</option>
+                            <option value="asc">⬇ Menor para Maior (Maiores Quedas)</option>
+                        </select>
+                    </div>
+
+                    <div class="chart-control-item">
+                        <label for="chartGridCols">📐 Grade por Linha:</label>
+                        <select id="chartGridCols">
+                            <option value="2">2 Gráficos</option>
+                            <option value="3" selected>3 Gráficos</option>
+                            <option value="4">4 Gráficos</option>
+                        </select>
+                    </div>
+
+                    <div class="chart-control-item">
+                        <label for="chartLimit">Exibir no Gráfico:</label>
+                        <select id="chartLimit">
+                            <option value="5">Top 5</option>
+                            <option value="10" selected>Top 10</option>
+                            <option value="15">Top 15</option>
+                            <option value="20">Top 20</option>
+                            <option value="30">Top 30</option>
+                            <option value="50">Top 50</option>
+                            <option value="0">Todos</option>
+                        </select>
+                    </div>
+
+                    <div class="dropdown-wrapper" id="chartToggleWrapper">
+                        <button id="btnToggleCharts" class="btn-secondary">👁️ Gráficos ▾</button>
+                        <div id="dropdownCharts" class="dropdown-menu hidden">
+                            <label><input type="checkbox" data-target-chart="card-compradores" checked> Compradores</label>
+                            <label><input type="checkbox" data-target-chart="card-status-fl" checked> Status FL por Comprador</label>
+                            <label><input type="checkbox" data-target-chart="card-status-isv" checked> Status ISV por Comprador</label>
+                            <label><input type="checkbox" data-target-chart="card-baixo-giro" checked> Baixo Giro (>90 dias)</label>
+                            <label><input type="checkbox" data-target-chart="card-pareto" checked> Curva ABC (Pareto)</label>
+                            <label><input type="checkbox" data-target-chart="card-grupos" checked> Grupos</label>
+                            <label><input type="checkbox" data-target-chart="card-subgrupos" checked> Subgrupos</label>
+                            <label><input type="checkbox" data-target-chart="card-estoque-vendas" checked> Capital Empatado</label>
+                            <label><input type="checkbox" data-target-chart="card-fornecedores" checked> Evolução dos Fornecedores</label>
+                            <label><input type="checkbox" data-target-chart="card-rankings" checked> Tabelas de Ranking</label>
+                        </div>
+                    </div>
+
+                    <button id="btnExportExecutivePdf" class="btn-primary" style="margin-left: auto;">
+                        📸 PDF Executivo
+                    </button>
+                </div>
+
+                <div class="charts-dashboard-grid grid-cols-3" id="chartsGrid">
+                    
+                    <!-- GRÁFICO 1: COMPRADORES -->
+                    <div class="chart-card" id="card-compradores" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 👤 Desempenho por Comprador</h3>
+                            <span class="chart-subtitle">Velas Horizontais</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartCompradores"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 2: STATUS FL POR COMPRADOR (DRILL-DOWN PARA DASHBOARD) -->
+                    <div class="chart-card" id="card-status-fl" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 🍊 Status FL por Comprador</h3>
+                            <span class="chart-subtitle">Clique para ver na Dashboard</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartStatusFl"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- NOVO GRÁFICO 3: STATUS ISV POR COMPRADOR (DRILL-DOWN PARA DASHBOARD) -->
+                    <div class="chart-card" id="card-status-isv" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> ⚡ Status ISV por Comprador</h3>
+                            <span class="chart-subtitle">Clique para ver na Dashboard</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartStatusIsv"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- NOVO GRÁFICO 4: BAIXO GIRO (>90 DIAS) POR COMPRADOR (DRILL-DOWN PARA DASHBOARD) -->
+                    <div class="chart-card" id="card-baixo-giro" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> ⏳ Baixo Giro (>90 dias) por Comprador</h3>
+                            <span class="chart-subtitle">Clique para ver na Dashboard</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartBaixoGiro"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 5: CURVA ABC / PARETO -->
+                    <div class="chart-card" id="card-pareto" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 🎯 Curva ABC de Compradores</h3>
+                            <span class="chart-subtitle">Clique numa curva para filtrar itens</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartPareto"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 6: GRUPOS -->
+                    <div class="chart-card" id="card-grupos" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 📁 Comparativo por Grupo</h3>
+                            <span class="chart-subtitle">Velas Verticais Duplas</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartGrupos"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 7: SUBGRUPOS -->
+                    <div class="chart-card" id="card-subgrupos" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 📂 Comparativo por Subgrupo</h3>
+                            <span class="chart-subtitle">Velas Horizontais Duplas</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartSubgrupos"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 8: ESTOQUE X VENDAS POR GRUPO -->
+                    <div class="chart-card" id="card-estoque-vendas" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 📦 Capital Empatado</h3>
+                            <span class="chart-subtitle">Estoque vs. Vendas</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartEstoqueVendas"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 9: EVOLUÇÃO DOS FORNECEDORES (AZUL vs VERMELHO) -->
+                    <div class="chart-card" id="card-fornecedores" draggable="true">
+                        <div class="chart-card-header">
+                            <h3><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 🏬 Evolução dos Fornecedores</h3>
+                            <span class="chart-subtitle">Velas Horizontais Duplas (Atual vs Ant.)</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chartFornecedores"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- RANKINGS E TABELAS RESUMO -->
+                    <div class="ranking-grid full-width" id="card-rankings">
+                        <div class="ranking-card" draggable="true">
+                            <h4><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 👤 Ranking de Compradores</h4>
+                            <div class="mini-table-wrapper">
+                                <table class="data-table mini-ranking-table">
+                                    <thead>
+                                        <tr>
+                                            <th data-sort-key="name" data-ranking="compradores">Comprador</th>
+                                            <th data-sort-key="vendaAnterior" data-ranking="compradores">Vda Ant.</th>
+                                            <th data-sort-key="vendaAtual" data-ranking="compradores">Vda Atu.</th>
+                                            <th data-sort-key="diferencaVendas" data-ranking="compradores">Diferença</th>
+                                            <th data-sort-key="pctEvolucao" data-ranking="compradores">Evol.</th>
+                                            <th>Ação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rankingCompradoresBody">
+                                        <tr><td colspan="6" class="empty-state">Sem dados.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="ranking-card" draggable="true">
+                            <h4><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 📁 Ranking de Grupos</h4>
+                            <div class="mini-table-wrapper">
+                                <table class="data-table mini-ranking-table">
+                                    <thead>
+                                        <tr>
+                                            <th data-sort-key="name" data-ranking="grupos">Grupo</th>
+                                            <th data-sort-key="vendaAnterior" data-ranking="grupos">Vda Ant.</th>
+                                            <th data-sort-key="vendaAtual" data-ranking="grupos">Vda Atu.</th>
+                                            <th data-sort-key="diferencaVendas" data-ranking="grupos">Diferença</th>
+                                            <th data-sort-key="pctEvolucao" data-ranking="grupos">Evol.</th>
+                                            <th>Ação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rankingGruposBody">
+                                        <tr><td colspan="6" class="empty-state">Sem dados.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="ranking-card" draggable="true">
+                            <h4><span class="drag-handle" title="Clique e arraste para reordenar">⋮⋮</span> 📂 Ranking de Subgrupos</h4>
+                            <div class="mini-table-wrapper">
+                                <table class="data-table mini-ranking-table">
+                                    <thead>
+                                        <tr>
+                                            <th data-sort-key="name" data-ranking="subgrupos">Subgrupo</th>
+                                            <th data-sort-key="grupo" data-ranking="subgrupos">Grupo</th>
+                                            <th data-sort-key="vendaAtual" data-ranking="subgrupos">Vda Atu.</th>
+                                            <th data-sort-key="diferencaVendas" data-ranking="subgrupos">Diferença</th>
+                                            <th data-sort-key="pctEvolucao" data-ranking="subgrupos">Evol.</th>
+                                            <th>Ação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rankingSubgruposBody">
+                                        <tr><td colspan="6" class="empty-state">Sem dados.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- PAGINAÇÃO COMPARTILHADA -->
+            <div class="pagination-bar" id="sharedPaginationBar">
+                <span id="pageInfo">Exibindo 0 de 0 registros</span>
+                <div class="pagination-controls">
+                    <label for="pageSize">Por pág:</label>
+                    <select id="pageSize">
+                        <option value="100" selected>100</option>
+                        <option value="250">250</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                    </select>
+                    <button id="btnPrevPage" class="btn-secondary" disabled>◀ Anterior</button>
+                    <span id="currentPageNum">Pág 1</span>
+                    <button id="btnNextPage" class="btn-secondary" disabled>Próxima ▶</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAIS -->
+    <div id="modalFilterConfig" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>🔍 Filtro: Valor por Idade</h3>
+                <button id="btnCloseFilterConfig" class="btn-close-modal">✖</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="inputMinIdade">Idade maior que quantos dias?</label>
+                    <input type="number" id="inputMinIdade" value="30" min="0" placeholder="Ex: 30">
+                </div>
+
+                <div class="form-group">
+                    <label for="inputMaxValor">Estoque abaixo de qual valor? (R$)</label>
+                    <input type="number" id="inputMaxValor" value="1000" min="0" step="0.01" placeholder="Ex: 1000">
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btnCancelFilterConfig" class="btn-secondary">Cancelar</button>
+                    <button id="btnApplyFilterConfig" class="btn-primary">Aplicar Filtro</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>⚙️ Configurações do Dashboard</h3>
+                <button id="btnCloseSettings" class="btn-close-modal">✖</button>
+            </div>
+            <div class="modal-body">
+                <span class="settings-section-title">⚡ Parâmetros do Filtro ISV</span>
+                
+                <div class="form-group">
+                    <label for="settingIsvMinIdade">Idade maior que quantos dias?</label>
+                    <input type="number" id="settingIsvMinIdade" value="7" min="0" placeholder="Padrão: 7">
+                </div>
+
+                <div class="form-group">
+                    <label for="settingIsvMinDiasSemVenda">Sem vendas há mais de quantos dias?</label>
+                    <input type="number" id="settingIsvMinDiasSemVenda" value="7" min="0" placeholder="Padrão: 7">
+                </div>
+
+                <hr style="border-color: var(--border-color); margin: 0.2rem 0;">
+
+                <span class="settings-section-title">📉 Parâmetros Baixa Autonomia</span>
+
+                <div class="form-group">
+                    <label for="settingBaixaAutonomiaMaxDias">Autonomia menor que quantos dias?</label>
+                    <input type="number" id="settingBaixaAutonomiaMaxDias" value="15" min="0" placeholder="Padrão: 15">
+                </div>
+
+                <hr style="border-color: var(--border-color); margin: 0.2rem 0;">
+
+                <span class="settings-section-title">🎨 Personalização de Cores</span>
+                
+                <div class="color-picker-row">
+                    <label for="colorBgPrimary">Fundo Principal do Dashboard</label>
+                    <input type="color" id="colorBgPrimary" value="#0b1120">
+                </div>
+
+                <div class="color-picker-row">
+                    <label for="colorBgSurface">Fundo dos Cards e Tabela</label>
+                    <input type="color" id="colorBgSurface" value="#1e293b">
+                </div>
+
+                <div class="color-picker-row">
+                    <label for="colorTextMain">Cor do Texto Principal</label>
+                    <input type="color" id="colorTextMain" value="#f8fafc">
+                </div>
+
+                <div class="color-picker-row">
+                    <label for="colorAccent">Cor de Destaque / Acentos</label>
+                    <input type="color" id="colorAccent" value="#38bdf8">
+                </div>
+
+                <hr style="border-color: var(--border-color); margin: 0.2rem 0;">
+
+                <button id="btnResetColors" class="btn-secondary" style="justify-content: center; width: 100%;">
+                    🔄 Restaurar Configurações Padrão
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Principal -->
+    <script src="script.js"></script>
+</body>
+</html>
