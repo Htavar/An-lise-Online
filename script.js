@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dropdownPdf: document.getElementById('dropdownPdf'),
         btnExportSimplePdf: document.getElementById('btnExportSimplePdf'),
         btnExportDetailedPdf: document.getElementById('btnExportDetailedPdf'),
+        btnExportTargetPdf: document.getElementById('btnExportTargetPdf'),
         btnToggleCols: document.getElementById('btnToggleCols'),
         dropdownCols: document.getElementById('dropdownCols'),
         columnToggleWrapper: document.getElementById('columnToggleWrapper'),
@@ -137,7 +138,14 @@ document.addEventListener('DOMContentLoaded', () => {
         colorBgSurface: document.getElementById('colorBgSurface'),
         colorTextMain: document.getElementById('colorTextMain'),
         colorAccent: document.getElementById('colorAccent'),
-        btnResetColors: document.getElementById('btnResetColors')
+        btnResetColors: document.getElementById('btnResetColors'),
+
+        // MODAL PDF META
+        modalTargetPdfConfig: document.getElementById('modalTargetPdfConfig'),
+        btnCloseTargetPdf: document.getElementById('btnCloseTargetPdf'),
+        btnCancelTargetPdf: document.getElementById('btnCancelTargetPdf'),
+        btnGenerateTargetPdf: document.getElementById('btnGenerateTargetPdf'),
+        inputTargetValue: document.getElementById('inputTargetValue')
     };
 
     initDragAndDrop();
@@ -318,6 +326,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.btnExportSimplePdf.addEventListener('click', () => exportToPDF('simple'));
     elements.btnExportDetailedPdf.addEventListener('click', () => exportToPDF('detailed'));
+
+    elements.btnExportTargetPdf.addEventListener('click', () => {
+        elements.dropdownPdf.classList.add('hidden');
+        if (!state.filteredData.length) {
+            alert("Não há dados filtrados para gerar o relatório em PDF.");
+            return;
+        }
+        elements.modalTargetPdfConfig.classList.remove('hidden');
+    });
+
+    elements.btnCloseTargetPdf.addEventListener('click', () => elements.modalTargetPdfConfig.classList.add('hidden'));
+    elements.btnCancelTargetPdf.addEventListener('click', () => elements.modalTargetPdfConfig.classList.add('hidden'));
+
+    elements.btnGenerateTargetPdf.addEventListener('click', () => {
+        const targetVal = parseFloat(elements.inputTargetValue.value);
+        if (isNaN(targetVal) || targetVal <= 0) {
+            alert("Por favor, digite um valor limite válido maior que zero.");
+            return;
+        }
+        elements.modalTargetPdfConfig.classList.add('hidden');
+        exportTargetValuePdf(targetVal);
+    });
 
     elements.btnToggleCols.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -610,6 +640,13 @@ function extractPackingFactor(embStr) {
     if (!embStr) return 1;
     const s = String(embStr).toUpperCase().trim();
     
+    let multMatch = s.match(/(\d+)\s*X\s*(\d+)/);
+    if (multMatch && multMatch[1] && multMatch[2]) {
+        let f1 = parseInt(multMatch[1], 10);
+        let f2 = parseInt(multMatch[2], 10);
+        if (f1 > 0 && f2 > 0) return f1 * f2;
+    }
+
     let m = s.match(/1\s*X\s*(\d+)/);
     if (m && m[1]) {
         let val = parseInt(m[1], 10);
@@ -1088,19 +1125,34 @@ function parseFileToJSON(file) {
 
         reader.onload = (e) => {
             try {
+                let workbook;
                 if (isCsv) {
                     const text = e.target.result;
-                    const workbook = XLSX.read(text, { type: 'string', raw: true });
-                    const firstSheet = workbook.SheetNames[0];
-                    const json = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
-                    resolve(json);
+                    workbook = XLSX.read(text, { type: 'string', raw: true });
                 } else {
                     const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array', raw: true });
-                    const firstSheet = workbook.SheetNames[0];
-                    const json = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
-                    resolve(json);
+                    workbook = XLSX.read(data, { type: 'array', raw: true });
                 }
+                
+                const firstSheet = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheet];
+                
+                const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+                
+                const headersMap = {};
+                if (worksheet['!ref']) {
+                    const range = XLSX.utils.decode_range(worksheet['!ref']);
+                    for(let C = range.s.c; C <= range.e.c; ++C) {
+                        const cellRef = XLSX.utils.encode_cell({c: C, r: range.s.r});
+                        const colLetter = cellRef.replace(/[0-9]/g, '');
+                        if(worksheet[cellRef] && worksheet[cellRef].v) {
+                            headersMap[colLetter] = worksheet[cellRef].v;
+                        }
+                    }
+                }
+                json.__headersMap = headersMap;
+                
+                resolve(json);
             } catch (err) { reject(err); }
         };
 
@@ -1115,17 +1167,33 @@ function parseFileToJSON(file) {
 }
 
 function processData(smg12Array, smg13Array, vendaAtualArray = [], vendaAnteriorArray = []) {
+    
+    const headerX13 = smg13Array.__headersMap ? smg13Array.__headersMap['X'] : null;
+    const headerAC13 = smg13Array.__headersMap ? smg13Array.__headersMap['AC'] : null;
+
     const map13 = new Map();
     smg13Array.forEach(row => {
         const rawCode = row['Código'] || row['MERC'] || row['MERCADORIA'] || row['MERCADC'] || '';
         if (!rawCode) return;
         const cleanKey = sanitizeProductCode(rawCode);
         
+        let custoCaixa = null;
+        if (headerX13 && row[headerX13] !== undefined && row[headerX13] !== "") {
+            custoCaixa = parseBRNumber(row[headerX13]);
+        }
+        
+        let diasSemVenda = null;
+        if (headerAC13 && row[headerAC13] !== undefined && row[headerAC13] !== "") {
+            diasSemVenda = parseBRNumber(row[headerAC13]);
+        }
+
         map13.set(cleanKey, {
             sta: row['Sta'] !== undefined && row['Sta'] !== null ? String(row['Sta']).trim() : 'N/A',
             pedFornec: parseBRNumber(row['Pedido Pendente Fornec.']),
             pedFilial: parseBRNumber(row['Pedido Pendente Filial']),
-            pedFat: parseBRNumber(row['Pedido Pendente N. Fat'])
+            pedFat: parseBRNumber(row['Pedido Pendente N. Fat']),
+            custoCaixa: custoCaixa,
+            diasSemVenda: diasSemVenda
         });
     });
 
@@ -1188,13 +1256,14 @@ function processData(smg12Array, smg13Array, vendaAtualArray = [], vendaAnterior
         const cleanKey = sanitizeProductCode(rawMerc);
         processedKeys.add(cleanKey);
         
-        const extra = map13.get(cleanKey) || { sta: 'N/A', pedFornec: 0, pedFilial: 0, pedFat: 0 };
+        const extra = map13.get(cleanKey) || { sta: 'N/A', pedFornec: 0, pedFilial: 0, pedFat: 0, custoCaixa: null, diasSemVenda: null };
         const totalPedidos = extra.pedFornec + extra.pedFilial + extra.pedFat;
-        const diasSemVenda = parseBRNumber(item['DIAS S/VND']);
+        
+        const diasSemVenda = extra.diasSemVenda !== null ? extra.diasSemVenda : parseBRNumber(item['DIAS S/VND']);
+        const custoMedio = extra.custoCaixa !== null ? extra.custoCaixa : parseBRNumber(item['CUSTO MEDIO']);
 
         const estoqEmb1 = parseBRNumber(item['ESTOQ EMB1']);
         const estoqEmb9 = parseBRNumber(item['ESTOQ EMB9']);
-        const custoMedio = parseBRNumber(item['CUSTO MEDIO']);
         const venda30Dias = parseBRNumber(item['QTD VENDA EMB1']);
         const precoVenda = parseBRNumber(item['PRECO VENDA']);
 
@@ -1204,8 +1273,7 @@ function processData(smg12Array, smg13Array, vendaAtualArray = [], vendaAnterior
         const custoUnidade = packingFactor > 0 ? (custoMedio / packingFactor) : custoMedio;
         const precoUnidade = packingFactor > 0 ? (precoVenda / packingFactor) : precoVenda;
 
-        const totalCaixas = estoqEmb1 + (packingFactor > 0 ? (estoqEmb9 / packingFactor) : 0);
-        const valorEstoqueTotal = totalCaixas * custoMedio;
+        const valorEstoqueTotal = (estoqEmb1 * custoMedio) + (estoqEmb9 * custoUnidade);
 
         let autonomiaDias = 0;
         if (venda30Dias > 0) autonomiaDias = (estoqEmb1 / venda30Dias) * 30;
@@ -1304,7 +1372,7 @@ function processData(smg12Array, smg13Array, vendaAtualArray = [], vendaAnterior
             }
 
             const det = detailsVendaAnterior.get(cleanKey) || detailsVendaAtual.get(cleanKey) || {};
-            const extra = map13.get(cleanKey) || { sta: 'S/ ESTOQUE', pedFornec: 0, pedFilial: 0, pedFat: 0 };
+            const extra = map13.get(cleanKey) || { sta: 'S/ ESTOQUE', pedFornec: 0, pedFilial: 0, pedFat: 0, diasSemVenda: null };
 
             itemsList.push({
                 id: cleanKey,
@@ -1337,7 +1405,7 @@ function processData(smg12Array, smg13Array, vendaAtualArray = [], vendaAnterior
                 bloq1: '',
                 bloq9: '',
                 prFixo: '',
-                diasSemVenda: 0,
+                diasSemVenda: extra.diasSemVenda !== null ? extra.diasSemVenda : 0,
                 sta: extra.sta === 'N/A' ? 'S/ ESTOQUE' : extra.sta,
                 pedFornec: extra.pedFornec,
                 pedFilial: extra.pedFilial,
@@ -2061,7 +2129,7 @@ function renderCompradoresChart(data, unitType) {
     });
 }
 
-// STATUS FL POR COMPRADOR (REDIRECIONA PARA DASHBOARD COM COMPRADOR + STA FL)
+// STATUS FL POR COMPRADOR
 function renderStatusFlChart(data) {
     const ctx = document.getElementById('chartStatusFl');
     if (!ctx) return;
@@ -2122,7 +2190,7 @@ function renderStatusFlChart(data) {
     });
 }
 
-// STATUS ISV POR COMPRADOR (REDIRECIONA PARA DASHBOARD COM COMPRADOR + ISV)
+// STATUS ISV POR COMPRADOR
 function renderStatusIsvChart(data) {
     const ctx = document.getElementById('chartStatusIsv');
     if (!ctx) return;
@@ -2183,7 +2251,7 @@ function renderStatusIsvChart(data) {
     });
 }
 
-// BAIXO GIRO (>90 DIAS) POR COMPRADOR (REDIRECIONA PARA DASHBOARD)
+// BAIXO GIRO (>90 DIAS) POR COMPRADOR
 function renderBaixoGiroChart(data) {
     const ctx = document.getElementById('chartBaixoGiro');
     if (!ctx) return;
@@ -2463,7 +2531,7 @@ function renderEstoqueVendasChart(data, unitType) {
     });
 }
 
-// EVOLUÇÃO DOS FORNECEDORES (AZUL PARA ATUAL E VERMELHO PARA ANTERIOR)
+// EVOLUÇÃO DOS FORNECEDORES
 function renderFornecedoresChart(data, unitType) {
     const ctx = document.getElementById('chartFornecedores');
     if (!ctx) return;
@@ -2770,4 +2838,124 @@ function exportToPDF(type) {
 
     const fileName = isDetailed ? `Relatorio_Detalhado_Estoque_${dateFormatted.replace(/\//g, '-')}.pdf` : `Relatorio_Simples_Estoque_${dateFormatted.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
+}
+
+// PDF POR META DE VALOR ACUMULADO
+function exportTargetValuePdf(targetValue) {
+    let accumulatedValue = 0;
+    const targetItems = [];
+
+    for (const item of state.filteredData) {
+        targetItems.push(item);
+        accumulatedValue += item.valorEstoqueTotal;
+        if (accumulatedValue >= targetValue) {
+            break;
+        }
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const titleText = `RELATÓRIO POR META DE VALOR (LIMITE: R$ ${targetValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
+
+    const headers = [
+        ["#", "Produto + Código", "Emb.", "Estoque", "Val. Estoque", "Val. Acumulado", "Comprador"]
+    ];
+
+    let currentAccumulated = 0;
+    const bodyData = targetItems.map((item, index) => {
+        currentAccumulated += item.valorEstoqueTotal;
+        const prodCodeStr = `${item.descricao}\n(Cód: ${item.codigoCompleto})`;
+        let estoqStr = `${item.estoqEmb1.toLocaleString('pt-BR')}CX`;
+        if (item.estoqEmb9 > 0) estoqStr += ` + ${item.estoqEmb9.toLocaleString('pt-BR')}UN`;
+
+        return [
+            (index + 1).toString(),
+            prodCodeStr,
+            item.embalagem || '-',
+            estoqStr,
+            item.valorEstoqueTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+            currentAccumulated.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+            item.comprador || '-'
+        ];
+    });
+
+    const now = new Date();
+    const dateFormatted = now.toLocaleDateString('pt-BR');
+    const timeFormatted = now.toLocaleTimeString('pt-BR');
+    const generationStamp = `Gerado em: ${dateFormatted} às ${timeFormatted}`;
+
+    doc.autoTable({
+        head: headers,
+        body: bodyData,
+        startY: 18,
+        margin: { top: 18, bottom: 20, left: 6, right: 6 },
+        theme: 'grid',
+        styles: {
+            fontSize: 6,
+            cellPadding: 0.8,
+            valign: 'middle',
+            overflow: 'linebreak',
+            lineColor: [203, 213, 225],
+            lineWidth: 0.15
+        },
+        headStyles: {
+            fillColor: [15, 23, 42],
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            halign: 'center',
+            fontSize: 6.5,
+            cellPadding: 1
+        },
+        columnStyles: {
+            0: { cellWidth: 8, halign: 'center' },
+            1: { cellWidth: 60 },
+            2: { cellWidth: 15, halign: 'center' },
+            3: { cellWidth: 25, halign: 'right' },
+            4: { cellWidth: 25, halign: 'right' },
+            5: { cellWidth: 30, halign: 'right' },
+            6: { cellWidth: 35 }
+        },
+        didDrawPage: (data) => {
+            doc.setFontSize(8.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(11, 17, 32);
+            doc.text("StockAnalytics - " + titleText, 6, 9);
+
+            doc.setFontSize(6.5);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100, 116, 139);
+            doc.text(`Itens Inclusos: ${targetItems.length} SKUs | Total Acumulado: ${accumulatedValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 6, 13.5);
+
+            doc.setLineWidth(0.2);
+            doc.setDrawColor(203, 213, 225);
+            doc.line(6, 15, doc.internal.pageSize.width - 6, 15);
+
+            const pageHeight = doc.internal.pageSize.height;
+            const pageWidth = doc.internal.pageSize.width;
+
+            doc.setFontSize(6.5);
+            doc.setTextColor(71, 85, 105);
+
+            doc.text("Assinatura: ___________________________", 6, pageHeight - 11);
+            doc.text("Data: ____/____/________", 90, pageHeight - 11);
+
+            doc.setDrawColor(226, 232, 240);
+            doc.line(6, pageHeight - 8, pageWidth - 6, pageHeight - 8);
+
+            doc.setFontSize(6);
+            doc.text(generationStamp, 6, pageHeight - 4);
+            doc.text(`Página ${data.pageNumber} de ${doc.internal.getNumberOfPages()}`, pageWidth - 25, pageHeight - 4);
+        }
+    });
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(6);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`Página ${i} de ${totalPages}`, doc.internal.pageSize.width - 25, doc.internal.pageSize.height - 4);
+    }
+
+    doc.save(`Relatorio_Meta_Valor_R$${targetValue}_${dateFormatted.replace(/\//g, '-')}.pdf`);
 }

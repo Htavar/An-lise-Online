@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockAnalytics - Dashboard de Gestão de Estoque</title>
-
+	
+	<!-- Fontes para Código de Barras Code 39 -->
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
+	<!-- Estilo Principal -->
+	<link rel="stylesheet" href="style.css">
+	<!-- Estilo Pedidos -->
+	<link rel="stylesheet" href="pedidos.css">
+	
     <!-- SheetJS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     
@@ -14,6 +21,9 @@
 
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+	
+	<!-- html2canvas CDN (Para conversão do HTML em Imagem) -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <!-- Estilo Principal -->
     <link rel="stylesheet" href="style.css">
@@ -36,9 +46,16 @@
                 <button class="tab-btn active" data-tab="tab-dashboard">📊 Dashboard</button>
                 <button class="tab-btn" data-tab="tab-sales">📈 Análise de Vendas</button>
                 <button class="tab-btn" data-tab="tab-charts">📉 Gráfico de Vendas</button>
+				<button class="tab-btn" data-tab="tab-clientes">👥 Clientes NF</button>
+				<button class="tab-btn" data-tab="tab-pedidos">🛒 Pedidos</button>
             </nav>
 
             <div class="data-sync-widget">
+				<!-- NOVO BOTÃO DE OLHO AQUI -->
+				<button id="btnToggleValues" class="btn-icon-setting" title="Ocultar/Exibir Valores Financeiros">
+					👁️
+				</button>
+				
                 <label for="folderInput" class="btn-sync">
                     📁 Selecionar Pasta
                 </label>
@@ -563,6 +580,237 @@
                 </div>
             </div>
 
+			<!-- ABA 4: CLIENTES NF -->
+			<div id="tab-clientes" class="tab-content hidden">
+				<section class="bento-grid">
+					<div class="bento-card">
+						<span class="card-label">Total de Clientes</span>
+						<strong class="card-value" id="kpiTotalClientes">0</strong>
+					</div>
+					<div class="bento-card">
+						<span class="card-label">Clientes Filtrados</span>
+						<strong class="card-value" id="kpiClientesFiltrados" style="color: var(--accent-blue);">0</strong>
+					</div>
+				</section>
+
+				<!-- CAIXA DE BUSCA DE CLIENTES -->
+				<div class="clientes-search-bar">
+					<input type="text" id="searchClientes" placeholder="🔍 Buscar cliente por CNPJ / CPF ou Razão Social..." />
+					<button id="btnClearSearchClientes" class="btn-clear" title="Limpar busca de clientes">
+						🧹 Limpar
+					</button>
+				</div>
+
+				<!-- TABELA DE CLIENTES NF -->
+				<section class="table-container">
+					<table class="data-table" id="clientesTable">
+						<thead>
+							<tr>
+								<th>CNPJ/CPF</th>
+								<th>RAZÃO SOCIAL</th>
+								<th>ENDEREÇO</th>
+								<th>BAIRRO</th>
+								<th>CIDADE</th>
+								<th>ESTADO</th>
+								<th>CEP</th>
+								<th>E-MAIL</th>
+								<th>TELEFONE</th>
+							</tr>
+						</thead>
+						<tbody id="clientesTableBody">
+							<tr>
+								<td colspan="9" class="empty-state">
+									Selecione a pasta contendo o arquivo de clientes para carregar os dados.
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</section>
+			</div>
+
+<!-- ABA 5: PEDIDOS -->
+<div id="tab-pedidos" class="tab-content hidden">
+    
+    <!-- BARRA SUPERIOR DO PEDIDO -->
+    <div class="pedidos-top-bar">
+        
+        <!-- LADO ESQUERDO: BUSCA DO CATÁLOGO E FILTRO DE EMBALAGEM -->
+        <div class="pedidos-top-left">
+            <div class="pedidos-search-box">
+                <input type="text" id="searchPedidosCatalog" placeholder="🔍 Buscar código ou descrição..." />
+                <input type="text" id="searchPedidosEmbalagem" placeholder="📦 Emb (ex: 2kg, cx)..." />
+                
+                <!-- NOVO: Toggle C/ Estoque -->
+                <label class="toggle-switch-container" title="Mostrar apenas itens com estoque">
+                    <input type="checkbox" id="togglePedidosEstoque" />
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">C/ Estoque</span>
+                </label>
+
+                <button id="btnClearSearchPedidos" class="btn-clear" title="Limpar busca">🧹 Limpar</button>
+            </div>
+        </div>
+
+        <!-- LADO DIREITO: CLIENTE, KPIS E BOTÃO GERAR IMAGEM -->
+        <div class="pedidos-top-right">
+            <!-- NOME DO CLIENTE -->
+            <div class="pedidos-card-input">
+                <label for="pedidosCliente">👤 NOME DO CLIENTE / RAZÃO SOCIAL</label>
+                <input type="text" id="pedidosCliente" placeholder="Digite o nome do cliente..." />
+            </div>
+
+            <!-- VALOR DO PEDIDO -->
+            <div class="bento-card bento-card-compact">
+                <span class="card-label">💰 VALOR DO PEDIDO</span>
+                <strong class="card-value" id="kpiValorPedido" style="color: var(--accent-blue);">R$ 0,00</strong>
+            </div>
+
+            <!-- QTD DE ITENS NO PEDIDO -->
+            <div class="bento-card bento-card-compact">
+                <span class="card-label">📦 QTD. ITENS</span>
+                <strong class="card-value" id="kpiQtdItensPedido">0</strong>
+            </div>
+
+            <!-- BOTÃO GERAR IMAGEM -->
+            <button id="btnGerarImagemPedido" class="btn-primary" title="Gerar e copiar imagem do pedido para a área de transferência" style="height: 100%; font-size: 0.72rem; padding: 0.3rem 0.6rem;">
+                📷 Gerar Imagem
+            </button>
+			
+			<!-- NOVO BOTÃO IMPRIMIR -->
+            <button id="btnImprimirPedido" class="btn-secondary" title="Abrir janela de impressão do pedido" style="height: 100%; font-size: 0.72rem; padding: 0.3rem 0.6rem;">
+                🖨️ Imprimir
+            </button>
+        </div>
+    </div>
+
+    <!-- CONTAINER DAS SEÇÕES ESQUERDA (ÁREA VERDE) E DIREITA (ÁREA VERMELHA) -->
+    <div class="pedidos-container">
+        
+        <!-- SEÇÃO DA ESQUERDA: CATÁLOGO DE ITENS SMG13 (ÁREA VERDE) -->
+        <section class="pedidos-catalog-section">
+            <div class="pedidos-section-header green-header">
+                <h3>📗 Catálogo de Produtos (SMG13)</h3>
+                <span class="sub-text">Clique em um produto para abrir a janela de lançamento</span>
+            </div>
+
+            <!-- TABELA DE PRODUTOS DA SMG13 -->
+            <div class="table-container pedidos-table-container">
+                <table class="data-table" id="pedidosCatalogTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 13%;">Código</th>
+                            <th style="width: 32%;">Descrição</th>
+                            <th style="width: 14%;">Embalagem</th>
+                            <th style="width: 13%;">Estoque</th>
+                            <th style="width: 10%;">PreçoCX</th>
+                            <th style="width: 9%;">PreçoUnd</th>
+                            <th style="width: 9%;">Paletização</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pedidosCatalogTableBody">
+                        <tr>
+                            <td colspan="7" class="empty-state">
+                                Selecione a pasta contendo o arquivo SMG13 para carregar o catálogo de produtos.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- PAGINAÇÃO DO CATÁLOGO -->
+            <div class="pedidos-pagination-bar">
+                <span id="pedidosPageInfo">Exibindo 0 de 0 produtos</span>
+                <div class="pagination-controls">
+                    <button id="btnPedidosPrevPage" class="btn-secondary" disabled>◀ Anterior</button>
+                    <span id="pedidosCurrentPageNum">Pág 1</span>
+                    <button id="btnPedidosNextPage" class="btn-secondary" disabled>Próxima ▶</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- SEÇÃO DA DIREITA: ITENS DO PEDIDO (ÁREA VERMELHA) -->
+        <section class="pedidos-cart-section">
+            <div class="pedidos-section-header red-header">
+                <h3>🛒 Itens do Pedido</h3>
+                <span class="sub-text">Produtos selecionados para o pedido atual</span>
+            </div>
+
+            <div class="table-container pedidos-cart-container">
+               <table class="data-table" id="pedidosCartTable">
+    <thead>
+        <tr>
+            <th style="width: 14%;">Código</th>
+            <th style="width: 25%;">Descrição</th>
+            <th style="width: 9%; text-align: center;">Qtd. CX</th>
+            <th style="width: 12%; text-align: right;">PreçoCX</th>
+            <th style="width: 13%; text-align: right;">Subtotal</th>
+            <th style="width: 19%; text-align: center;">C. Barras</th>
+            <th style="width: 8%; text-align: center;">Ações</th>
+        </tr>
+    </thead>
+    <tbody id="pedidosCartTableBody">
+        <tr>
+            <td colspan="7" class="empty-state">
+                Nenhum item adicionado ao pedido ainda.<br>
+                <span class="sub-text" style="margin-top: 4px;">Clique nos produtos da tabela da esquerda para abrir a janela de lançamento.</span>
+            </td>
+        </tr>
+    </tbody>
+</table>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- JANELA FLUTUANTE (MODAL) PARA LANÇAR / EDITAR PRODUTO -->
+    <div id="modalLancarProduto" class="modal-overlay hidden">
+        <div class="modal-card pedidos-modal-lancar">
+            <div class="modal-header">
+                <h3>📝 Lançar Produto no Pedido</h3>
+                <button id="btnCloseLancarModal" class="btn-close-modal">✖</button>
+            </div>
+            <div class="modal-body">
+                <div class="pedidos-modal-product-info">
+                    <div class="product-code-badge" id="modalProdCode">00000-000</div>
+                    <div class="product-title" id="modalProdDesc">NOME DO PRODUTO</div>
+                    <div class="product-meta-row">
+                        <span>Emb: <strong id="modalProdEmb">-</strong></span> | 
+                        <span>Estoque: <strong id="modalProdEstoque">-</strong></span> | 
+                        <span>Paletização: <strong id="modalProdPaletizacao">-</strong></span>
+                    </div>
+                </div>
+
+                <hr style="border-color: var(--border-color); margin: 0.5rem 0;" />
+
+                <div class="form-group">
+                    <label for="inputModalQtd">📦 Quantidade de Caixas (Qtd. CX)</label>
+                    <input type="number" id="inputModalQtd" min="1" step="1" value="1" placeholder="Digite a quantidade..." />
+                </div>
+
+                <div class="form-group">
+                    <label for="inputModalPrecoNegociado">💵 Preço Negociado Unitário (Preço Und - R$)</label>
+                    <input type="number" id="inputModalPrecoNegociado" step="0.01" min="0" placeholder="0.00" />
+                    <span class="sub-text" style="margin-top: 3px; display: flex; justify-content: space-between;">
+                        <span>Preço Und. Tabela: <strong id="modalProdPrecoUndTabela" style="color: var(--accent-blue);">R$ 0,00</strong></span>
+                        <span>Preço Cx Calc.: <strong id="modalProdPrecoCxCalc" style="color: #4ade80;">R$ 0,00</strong></span>
+                    </span>
+                </div>
+
+                <div class="pedidos-modal-subtotal-box">
+                    <span>Subtotal do Item:</span>
+                    <strong id="modalProdSubtotal">R$ 0,00</strong>
+                </div>
+
+                <div class="modal-actions" style="margin-top: 0.8rem;">
+                    <button id="btnCancelLancarModal" class="btn-secondary">Cancelar</button>
+                    <button id="btnConfirmLancarModal" class="btn-primary">✔ Confirmar / Lançar (Enter)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
             <!-- PAGINAÇÃO COMPARTILHADA -->
             <div class="pagination-bar" id="sharedPaginationBar">
                 <span id="pageInfo">Exibindo 0 de 0 registros</span>
@@ -671,5 +919,17 @@
 
     <!-- Script Principal -->
     <script src="script.js"></script>
+    <!-- Script clientes -->
+    <script src="clientes.js"></script>
+	<!-- Script Principal -->
+    <script src="script.js"></script>
+    <!-- Script clientes -->
+    <script src="clientes.js"></script>
+    <!-- Script pedidos -->
+    <script src="pedidos.js"></script>
+</body>
+</html>
+</body>
+</html>
 </body>
 </html>
