@@ -429,3 +429,17 @@
     background-color: var(--accent-blue);
     color: #0b1120;
 }
+
+/* BOTÃO EXPORTAR TUDO */
+#btnExportarTudoPedido {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+    cursor: pointer;
+    color: #ffffff !important;
+}
+
+#btnExportarTudoPedido:hover {
+    background: linear-gradient(180deg, #16a34a 0%, #166534 100%) !important;
+}

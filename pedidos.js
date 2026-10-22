@@ -5,7 +5,8 @@
 const pedidosState = {
     rawSmg13: [],
     filteredSmg13: [],
-    cartItems: [], // { id, rawCode, formattedCode, descricao, embalagem, precoUndTabela, precoUndNegociado, precoCxNegociado, packingFactor, qtdCx, paletizacao }
+    cartItems: [], 
+    savedOrders: {}, // Armazena os pedidos de cada cliente em memória
     clientName: '',
     activeModalProduct: null,
     currentPage: 1,
@@ -28,12 +29,66 @@ function initPedidosModule() {
     if (folderInput) {
         folderInput.addEventListener('change', handlePedidosFolderSelect);
     }
+	
+	// Botão Exportar Tudo (PDF Multi-páginas de Todos os Pedidos)
+    const btnExportarTudo = document.getElementById('btnExportarTudoPedido');
+    if (btnExportarTudo) {
+        btnExportarTudo.addEventListener('click', exportarTodosPedidosPdf);
+    }
 
-    // Campo de Nome do Cliente
-    const inputCliente = document.getElementById('pedidosCliente');
-    if (inputCliente) {
-        inputCliente.addEventListener('input', (e) => {
-            pedidosState.clientName = e.target.value;
+    // Campo de Nome do Cliente com menu SELECT escuro
+    const selectCliente = document.getElementById('pedidosClienteSelect');
+    const btnNovoCliente = document.getElementById('btnNovoCliente');
+
+    if (selectCliente) {
+        selectCliente.addEventListener('change', (e) => {
+            const novoNome = e.target.value.trim();
+            const nomeAntigo = pedidosState.clientName.trim();
+
+            if (nomeAntigo !== '') {
+                if (pedidosState.cartItems.length > 0) {
+                    pedidosState.savedOrders[nomeAntigo] = [...pedidosState.cartItems];
+                } else {
+                    delete pedidosState.savedOrders[nomeAntigo];
+                }
+            }
+
+            pedidosState.clientName = novoNome;
+
+            if (novoNome !== '' && pedidosState.savedOrders[novoNome]) {
+                pedidosState.cartItems = [...pedidosState.savedOrders[novoNome]];
+            } else {
+                pedidosState.cartItems = [];
+            }
+
+            updateClientesSelect();
+            renderPedidosKpis();
+            renderPedidosCartTable();
+        });
+    }
+
+    if (btnNovoCliente) {
+        btnNovoCliente.addEventListener('click', () => {
+            const nomePrompt = prompt("Digite o nome do novo cliente:");
+            if (nomePrompt && nomePrompt.trim() !== '') {
+                const nomeFormatado = nomePrompt.trim();
+                
+                // Salva o pedido atual antes de mudar para o novo
+                const nomeAntigo = pedidosState.clientName.trim();
+                if (nomeAntigo !== '' && pedidosState.cartItems.length > 0) {
+                    pedidosState.savedOrders[nomeAntigo] = [...pedidosState.cartItems];
+                }
+
+                pedidosState.savedOrders[nomeFormatado] = [];
+                pedidosState.clientName = nomeFormatado;
+                pedidosState.cartItems = [];
+                
+                updateClientesSelect();
+                if (selectCliente) selectCliente.value = nomeFormatado;
+                
+                renderPedidosKpis();
+                renderPedidosCartTable();
+            }
         });
     }
 
@@ -968,4 +1023,163 @@ function imprimirPedido() {
     `);
 
     printWindow.document.close();
+}
+/**
+ * Atualiza o menu de seleção (<select>) com os nomes dos clientes que têm pedidos salvos
+ */
+function updateClientesSelect() {
+    const select = document.getElementById('pedidosClienteSelect');
+    if (!select) return;
+
+    const valorAtual = pedidosState.clientName;
+    select.innerHTML = '<option value="">-- Selecione ou Criar Novo --</option>';
+
+    Object.keys(pedidosState.savedOrders).forEach(cliente => {
+        const option = document.createElement('option');
+        option.value = cliente;
+        option.textContent = cliente;
+        select.appendChild(option);
+    });
+
+    select.value = valorAtual;
+}
+/**
+ * Gera um PDF unificado contendo todos os pedidos salvos (1 por página)
+ * no layout de impressão (fundo branco, retrato) e abre a janela para salvar com a data do dia.
+ */
+async function exportarTodosPedidosPdf() {
+    // Garante que o pedido atual exibido na tela seja salvo no estado antes de exportar
+    const clienteAtual = pedidosState.clientName.trim();
+    if (clienteAtual !== '' && pedidosState.cartItems.length > 0) {
+        pedidosState.savedOrders[clienteAtual] = [...pedidosState.cartItems];
+    }
+
+    const listaClientes = Object.keys(pedidosState.savedOrders).filter(
+        cli => pedidosState.savedOrders[cli] && pedidosState.savedOrders[cli].length > 0
+    );
+
+    if (listaClientes.length === 0) {
+        alert("Não há nenhum pedido salvo para exportar.");
+        return;
+    }
+
+    const btn = document.getElementById('btnExportarTudoPedido');
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.innerHTML = '⏳ Gerando PDF...';
+        btn.disabled = true;
+    }
+
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const fileNameDate = `${year}-${month}-${day}`;
+
+        listaClientes.forEach((clienteNome, index) => {
+            if (index > 0) {
+                doc.addPage();
+            }
+
+            const items = pedidosState.savedOrders[clienteNome];
+            const totalValor = items.reduce((sum, item) => sum + (item.qtdCx * item.precoCxNegociado), 0);
+            const totalItens = items.length;
+
+            // Cabeçalho escuro de destaque para cada pedido
+            doc.setFillColor(11, 17, 32);
+            doc.roundedRect(8, 8, 194, 22, 2, 2, 'F');
+
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(56, 189, 248);
+            doc.text("StockAnalytics - Espelho de Pedido", 12, 15);
+
+            doc.setFontSize(8.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(248, 250, 252);
+            doc.text(`CLIENTE: ${clienteNome}`, 12, 23);
+            doc.text(`QTD. ITENS: ${totalItens}`, 110, 23);
+
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(74, 222, 128);
+            doc.text(`TOTAL: ${totalValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 155, 23);
+
+            // Tabela de produtos do pedido
+            const headers = [["Código", "Descrição", "Qtd. CX", "PreçoCX", "Subtotal", "C. Barras"]];
+            const bodyData = items.map(item => {
+                const subtotal = item.qtdCx * item.precoCxNegociado;
+                const barcodeText = formatBarcodeCode39(item.rawCode || item.formattedCode);
+                return [
+                    item.formattedCode,
+                    item.descricao,
+                    `${item.qtdCx} CX`,
+                    item.precoCxNegociado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                    subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+                    barcodeText
+                ];
+            });
+
+            doc.autoTable({
+                head: headers,
+                body: bodyData,
+                startY: 33,
+                margin: { left: 8, right: 8, bottom: 20 },
+                theme: 'grid',
+                styles: {
+                    fontSize: 8,
+                    cellPadding: 1.5,
+                    valign: 'middle',
+                    lineColor: [203, 213, 225],
+                    lineWidth: 0.15,
+                    textColor: [15, 23, 42]
+                },
+                headStyles: {
+                    fillColor: [241, 245, 249],
+                    textColor: [51, 65, 85],
+                    fontStyle: 'bold',
+                    fontSize: 8.5
+                },
+                columnStyles: {
+                    0: { cellWidth: 26, fontStyle: 'bold', textColor: [2, 132, 199] },
+                    1: { cellWidth: 68, fontStyle: 'bold' },
+                    2: { cellWidth: 20, halign: 'center' },
+                    3: { cellWidth: 26, halign: 'right' },
+                    4: { cellWidth: 26, halign: 'right', fontStyle: 'bold', textColor: [21, 128, 61] },
+                    5: { cellWidth: 28, halign: 'center', font: 'courier' }
+                },
+                didDrawPage: (data) => {
+                    const pageHeight = doc.internal.pageSize.height;
+                    const pageWidth = doc.internal.pageSize.width;
+
+                    doc.setFontSize(7.5);
+                    doc.setFont("helvetica", "normal");
+                    doc.setTextColor(71, 85, 105);
+
+                    doc.text("Assinatura do Cliente: ___________________________", 8, pageHeight - 10);
+                    doc.text("Data: ____/____/________", 110, pageHeight - 10);
+
+                    const generationStamp = `Gerado em: ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR')}`;
+                    doc.setFontSize(6.5);
+                    doc.text(generationStamp, 8, pageHeight - 4);
+                    doc.text(`Pedido ${index + 1} de ${listaClientes.length}`, pageWidth - 28, pageHeight - 4);
+                }
+            });
+        });
+
+        // Salva o PDF abrindo a caixa de diálogo para escolha de local com o nome da data do dia
+        doc.save(`${fileNameDate}.pdf`);
+
+    } catch (err) {
+        console.error("Erro ao gerar PDF unificado de pedidos:", err);
+        alert("Ocorreu um erro ao gerar o relatório exportado.");
+    } finally {
+        if (btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
 }
